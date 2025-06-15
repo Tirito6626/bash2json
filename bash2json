@@ -170,7 +170,6 @@ json_query() {
   trimmed_json=$(json_trim "$input")
   if [ ! -z "$key" ]; then 
   string=$(echo "$trimmed_json" | sed 's/^.*"'"$key"'":\(.*\).*$/\1/;s/\\"/\x22/g')
-  [[ "$trimmed_json" == "$string" ]] && echo "null" && exit
   depth=0
   type=null
   newstring=''
@@ -306,7 +305,7 @@ fi
 case "${action:=query}" in
 help)
 cat <<-EOF
-Usage: $(! "$sourced" && echo "${0}" || echo "$FUNCNAME") <arg1> <arg2?> <arg3?> [options?]
+Usage: $(! "$sourced" && echo "${0}" || echo "$FUNCNAME") <input> <arg2?> <arg3?> [options?]
 
 Available options:
 --from-json      Convert JSON into associative/indexed array
