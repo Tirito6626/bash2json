@@ -1,0 +1,455 @@
+#!/bin/bash
+#
+# bash2json: The most bash-based JSON parser
+# Credits: Tirito6626, 2025
+# License: Apache License 2.0
+#
+(return 0 2>/dev/null) && sourced=true || sourced=false
+function bash2json {
+error() {
+  exit=${2}
+  echo "error: $1" >&2
+  "${exit:=true}" && { ! "${sourced}" && exit 1 || return 1; }
+}
+  json_trim() {
+    local input=$1
+    input="${input#"${input%%[![:space:]]*}"}"
+    input="${input%"${input##*[![:space:]]}"}"
+
+  echo "$input" | awk '
+    {
+      inside_string=0;
+      result="";
+      for (i=1; i<=length($0); i++) {
+        char=substr($0,i,1);
+        if (char=="\"" && substr($0,i-1,1)!="\\") {
+          inside_string = !inside_string;
+        }
+        if (!inside_string && (char==" " || char=="\t" || char=="\n" || char=="\r")) {
+          continue;
+        }
+        result = result char;
+      }
+      print result;
+    }'
+}
+json_append() {
+  local input="$1"
+  local key="$2"
+  local value="$3"
+  if [[ "${input:0:1}" == "{" ]]; then 
+    [ -z "$key" ] && error "key missing"
+    [ -z "$value" ] && error "value missing"
+    case "$value" in 
+        \.*|\[.*|\".*|true|false|[0-9]|null) : ;;
+        *) value='"'"$value"'"' ;; 
+    esac
+    if [[ "$key" =~ '=' ]]; then 
+      IFS='=' read key type <<< "$key"
+      [[ "$type" == "string" && "${value:0:1}" != '"' ]] && value='"'"$value"'"'
+    fi
+    [[ "$input" = '{}' ]] && echo "$input" | sed 's/\(.*\)}/\1"'"${key//\"}"'":'"$value"'}/' || echo "$input" | sed 's/\(.*\)}/\1,"'"${key//\"}"'":'"$value"'}/'
+  elif [[ "${input:0:1}" == "[" ]]; then
+    [ -z "$key" ] && error "key missing"
+    echo "$input" | sed "s/]/,$key]/"
+  else 
+    error "can't append JSON: not a valid key type" 
+ fi
+}
+array_list() {
+echo "$1" | sed 's/\[//g;s/\]//g;s/,/\n/g'
+}
+json_list() {
+while read line; do 
+      read key value <<< "$line"
+      if [[  ${value:0:1} == "{" ]]; then 
+       json_list "$value" |  while read subline; do 
+            read subkey subvalue <<< "$subline"
+            echo "$key.$subkey $subvalue"
+        done 
+      elif [[ ${value:0:1} == "[" ]]; then
+        i=0
+        array_list "$value" | while read subline; do 
+            echo "$key.$i $subline"
+            ((i++))
+        done
+      else 
+        echo "$key $value"
+    fi
+    done < <(json_trim "$1" | awk '{
+  str=$0;
+  while (match(str, /"([^"]+)":(\{[^{}]*\}|\[[^][]*\]|"[^"]*"|[^,{"]+)/)) {
+    key = substr(str, RSTART, RLENGTH);
+    split(key, parts, ":");
+    k = parts[1];
+    v = substr(key, length(k)+2); 
+    gsub(/^"/, "", k); gsub(/"$/, "", k);
+    sub(/}$/, "", v)
+    print k " " v;
+    str = substr(str, RSTART + RLENGTH);
+  }
+}')
+}
+json_validate() {
+  local input="$1"
+   trimmed_json=$(json_trim "$input")
+  depth=0
+  dquotes=0
+  bdepth=0
+  type=null
+  newstring=''
+  firstchar=''
+  quoted=true
+  prevchar=''
+  unquotedchars=''
+  while IFS='' read -r -d '' -n 1 char; do
+    [[ "$prevchar" == '\' ]] && newstring+="$char" && prevchar="$char" && continue
+    [[ "$prevchar" == '{' || "$prevchar" == ':' || "$prevchar" == ',' ]]  && [[ "$char" != '"' && "$char" != 't' && "$char" != 'f' && "$char" != [0-9] && "$char" != '}' && "$char" != '{'  && "$char" != '[' && "$char" != ']' ]] && quoted=false && unquotedchars+="$char" && continue
+    if ! "$quoted"; then 
+      [[ "$char" != '}' && "$char" != ']' && "$char" != ':' && "$char" != ',' ]] && unquotedchars+="$char" || { unquotedchars+=" "; quoted=true; } 
+    fi
+    if [ -z "$firstchar" ]; then 
+      firstchar="$char"
+      case "$char" in 
+        '{') type='object'  ;;
+        '[') type='array'   ;;
+        '"') type='string'  ;;
+        t|f) type='boolean' ;;
+        [0-9]) type='int'   ;;
+        *)     type=null    ;; 
+      esac
+      newstring+="$char"
+      ((++depth))
+      continue 
+    fi
+    if [[ "$firstchar" == "{" ]]; then 
+      newstring+="$char"
+      [[ "$char" == '{' ]] && ((++depth))
+      [[ "$char" == '}' ]] && ((--depth))
+      [[ "$char" == '"' ]] && ((++dquotes))
+      [[ "$char" == '[' ]] && ((++bdepth))
+      [[ "$char" == ']' ]] && ((--bdepth))
+    elif [[ "$firstchar" == "[" ]]; then 
+      [[ "$depth" -gt 1 && "$char" == "," ]] && newstring+=" " || newstring+="$char"
+      [[ "$char" == "]" ]] && ((--depth))
+      [[ "$char" == '"' ]] && ((++dquotes))
+    elif [[ "$firstchar" == '"' ]]; then
+      [[ "$char" == '"' ]] && ((--depth)) || newstring+="$char"
+    else 
+      newstring+="$char"
+      [[ "$char" == ',' ||  "$char" == '}' ]] && newstring=${newstring::-1} && break 
+    fi
+    prevchar="$char"
+  done < <(printf %s "$trimmed_json")
+  (( depth > 0 )) && error "missing ${depth} \`}\`" false
+  (( depth < 0 )) && error "missing ${depth//\-} \`{\`" 
+  (( dquotes % 2 )) && error "missing $((dquotes-(dquotes-1))) \`\"\`"
+  (( bdepth > 0 )) && error "missing ${bdepth} \`]\`"
+  (( bdepth < 0 )) && error "missing ${bdepth//-} \`[\`"
+  [ ! -z "$unquotedchars" ] && error "unquoted characters: $unquotedchars"
+}
+json_to_nested_arr() {
+while read -r line; do
+  read -r name key value subvalue <<< "$line"
+   [[ "$subvalue" != " " && "$subvalue" != "" ]] && echo "${name}_${key}[$value]=$subvalue" || echo "$name[$key]=$value"
+  done <<< "$1"
+}
+
+json_query() {
+  local input="$1"
+  local key="$2"
+  local sub=false
+    while read key; do
+   if [[ "$key" =~ \. ]]; then 
+    sub=true
+    read key subkey <<<"$(echo "$key" | sed 's/\./ /')"
+    if [ -z "$subkey" ]; then 
+      ! "$silent" && error "invalid key invocation: \`$2'; expected <key>.<subkey>"
+    fi 
+  fi
+  trimmed_json=$(json_trim "$input")
+  if [ ! -z "$key" ]; then 
+  string=$(echo "$trimmed_json" | sed 's/^.*"'"$key"'":\(.*\).*$/\1/;s/\\"/\x22/g')
+  [[ "$trimmed_json" == "$string" ]] && echo "null" && exit
+  depth=0
+  type=null
+  newstring=''
+  firstchar=''
+  while IFS='' read -r -d '' -n 1 char; do
+    if [ -z "$firstchar" ]; then 
+      firstchar="$char"
+      case "$char" in 
+        '{') type='object'  ;;
+        '[') type='array'   ;;
+        '"') type='string'  ;;
+        t|f) type='boolean' ;;
+        [0-9]) type='int'   ;;
+        *)     type=null    ;; 
+      esac
+      newstring+="$char"
+      ((++depth))
+      continue 
+    fi
+    if [[ "$firstchar" == "{" ]]; then 
+      newstring+="$char"
+      [[ "$char" == "{" ]] && ((++depth))
+      [[ "$char" == "}" ]] && ((--depth))
+      ((depth == 0)) && break || continue 
+    elif [[ "$firstchar" == "[" ]]; then 
+       [[ "$depth" -gt 1 && "$char" == "," ]] && newstring+=" " || newstring+="$char"
+      [[ "$char" == "]" ]] && ((--depth))
+      ((depth == 0)) && break || continue 
+    elif [[ "$firstchar" == '"' ]]; then
+      [[ "$char" == '"' ]] && ((--depth)) || newstring+="$char"
+      ((depth == 0)) && break || continue 
+    else 
+      newstring+="$char"
+      [[ "$char" == ',' ||  "$char" == '}' ]] && newstring=${newstring::-1} && break 
+    fi
+  done < <(printf %s "$string")
+  if "$sub"; then 
+    if [ ! -z "$subkey" ]; then 
+      $FUNCNAME "${newstring}" "$subkey"
+    fi 
+  else   
+  if [[ "${type}" == "string" ]]; then 
+    "${raw:=false}" && echo -e "${newstring//\"}" || echo -e "${newstring}"
+  else 
+    echo -e "${newstring}"
+  fi
+  true
+  fi
+else 
+  echo "$trimmed_json"
+fi
+done <<< "$(echo "$key" | sed 's/,|, | /\n/g')"
+}
+
+json_to_arr() {
+     while read line; do 
+      read key value <<< "$line"
+      if [[ ${value:0:1} == "{" ]]; then 
+        while read subline; do 
+            read subkey subvalue <<< "$subline"
+            echo "$output_arr[$key.$subkey]=$subvalue"
+        done <<< "$(json_list "$value")"
+    
+      else 
+        echo "$output_arr[$key]=$value"
+    fi
+    done <<< "$(json_list "$json")"
+}
+local type='| tostring'
+local vers=v1.0.0
+local silent=false
+local validate=true
+declare -a args=()
+for arg in "$@"; do
+case $arg in
+-V|--version)
+echo "bash2json [${vers}]"
+echo "Copyright (C) 2025 Tirito6626"
+exit
+;;
+-uv)           local ultraverbose=true    ;;
+--from-json)   local action=from_json     ;;
+--to-json)     local action=to_json       ;;
+-q|--query)    local action=query         ;;
+-A|--append)   local action=append        ;;
+-H|-h|--help)  local action=help          ;;  
+-v|--validate) local action=validate      ;;
+-N|--no-validate) local validate=false    ;;
+-s|--silent)   local silent=true          ;;
+--auto-detect) local autodetect=true      ;;
+--stdin)       local readfromstdin=true   ;;
+-r|--raw)      local raw=true             ;;
+--input=*)   local input="${arg#*=}"      ;;
+--output=*)  local output_arr="${arg#*=}" ;;
+--mode=*)    local mode="${arg#*=}"       ;;
+--auto-detect=*) local autodetect="${arg#*=}" ;;
+*)              local allargs+=("$arg") ;;
+esac
+done
+if [[ "$action" != "help" && "$action" != "to_json" && "${allargs[0]:0:1}" != '{' && "${allargs[0]:0:1}" != '[' ]]; then
+if "${readfromstdin:=false}"; then 
+  local var="$(</dev/stdin)"
+  local query=${allargs[0]}
+  local arg2=${allargs[1]}
+  local arg3=${allargs[2]}
+else 
+  if [ -f "$input" ] || [ -L "$input" ]; then 
+    local var="$(<"$input")"
+    local query=${allargs[0]}
+    local arg2=${allargs[1]}
+    local arg3=${allargs[2]}
+  elif [[ "${input:0:1}" = '{' ||  "${input:0:1}" = '[' ]]; then 
+    local var="$input"
+    local query=${allargs[0]}
+    local arg2=${allargs[1]}
+    local arg3=${allargs[2]}
+  else
+    local var=${allargs[0]}
+    local query=${allargs[1]}
+    local arg2=${allargs[2]}
+    local arg3=${allargs[3]}
+  fi
+fi
+else 
+    local var=${allargs[0]}
+    local query=${allargs[1]}
+    local arg2=${allargs[2]}
+    local arg3=${allargs[3]}
+fi
+"${ultraverbose:=false}" && set -x
+"${validate}" && [[ "${action:=query}" != "validate" && "${action:=query}" != "to_json"  && "${action:=query}" != "help" ]] && json_validate "$var"
+[[ "$action" != "help" ]] && [ -z "$var" ] && error "input missing"
+case "${action:=query}" in
+help)
+cat <<-EOF
+Usage: $(! "$sourced" && echo "${0}" || echo "$FUNCNAME") <arg1> <arg2?> <arg3?> [options?]
+
+Available options:
+--from-json      Convert JSON into associative/indexed array
+--to-json        Convert associative/indexed array into JSON
+-q|--query       Perform a JSON query (e.g. 'key' or 'key.subkey') (default)
+-A|--append      Append key to JSON
+-H|-h|--help     Return this message
+-v|--validate    Validate JSON
+-N|--no-validate Don't validate JSON input before actions
+-s|--silent)     Don't return errors
+--auto-detect    Auto-detect key types while using --to-json
+--stdin          Read from standart input
+-r|--raw         Raw output
+--input=*        Set input or file to use as input 
+--output=*       Set output array name (doesn't execute it)
+--mode=*         Set mode for --from-json
+--auto-detect=*  Enable/disable auto-detection
+Available modes:
+top-level        Generates single array with all keys and subkeys
+                 Subkeys are returned as "array[<key>.<subkey>]=<subkey value>"
+nested           Generates multiple array with own array for each level
+                 Subkeys are returned as "array_key[subkey]=<subkey value>"
+
+NOTE: --to-json requires bash2json to be sourced due to how bash stores arrays, 
+                otherwise bash2json wouldn't access it
+EOF
+;;
+validate)
+json_validate "$var"
+;;
+append)
+json=$(json_trim  "$var")
+queryout=$(json_query "$json" "$query")
+output=$(json_append "$queryout" "$arg2" "$arg3")
+if [[ "$output" != "" ]]; then 
+  if [[ "$query" == "" ]]; then 
+    echo "$output" 
+  else
+    echo "$json" | sed "s/\"$query\":$queryout/\"$query\":$output/g" 
+  fi
+fi 
+;;
+query)
+json_query "$var" "$query"
+;;
+from_json)
+if [ ! -z "$var" ]; then
+case "${mode:=top-level}" in
+  top-level)
+    json=$(json_trim  "$var")
+    [ -z "$output_arr" ] && output_arr=array_$RANDOM
+    echo "$output_arr"
+    while read line; do 
+      read key value <<< "$line"
+      #echo "key: $key value: $value";
+       # eval "$output_arr[$key]=$value"
+       echo "$output_arr[$key]=$value"
+    done <<< "$(json_list "$json")"
+    ;;
+  nested)
+    json=$($0 --from-json $(json_trim "$var") | sed -E 's/^(.*)\[(.*)\]=(.*)/\1 \2 \3/g;s/\./ /g')
+    json_to_nested_arr "$json"
+    ;;
+esac
+
+fi
+;;
+to_json)
+if [[ "$(declare -p "$var" 2>/dev/null)" =~ "declare -A" ]]; then 
+data='{'
+  for key in $(eval "echo \${!$var[@]}"); do
+    local value=$(eval "echo -e \${$var[$key]}")
+    if [ ! -z "${value}" ] && [[ "$(declare -p "$value" 2>/dev/null)" =~ "declare -A" || "$(declare -p "$value" 2>/dev/null)" =~ "declare -a" ]]
+    then 
+      local value=$($FUNCNAME "$value" $vars)
+    fi
+    if [[ "${key}" =~ \. ]]; then 
+      IFS='.' read mainkey key <<<"$key"
+      if [[ ${key} =~ ^.*= ]]; then
+      local keyout=$(json_query "$data" "$mainkey") 
+      local appendout=$(json_append "$keyout" "$key" "$value")
+      local data="$(echo "$data" | sed "s/\"$mainkey\":$keyout/\"$mainkey\":$appendout/")"
+      else 
+        "${autodetect:=true}" && [[ 
+            "$value" == true ||
+            "$value" == false ||
+            "$value" =~ ^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$ ||
+            "$value" == null ||
+            "${value:0:1}" == "[" ||
+            "${value:0:1}" == "{"
+          ]] && data+=",\"$key\":$value" || data+=",\"$key\":\"$value\""
+      fi
+    else 
+    if [[ ${key} =~ ^.*= ]]; then 
+      case ${key//*=} in
+        snowflake|string) data+=",\"${key//=*}\":\"$value\"" ;;
+        int|number|bool*|array|object) data+=",\"${key//=*}\":$value" ;;
+        *) data+=",\"${key//=*}\":\"$value\"" ;;
+      esac
+    else 
+      if "${autodetect:=true}"; then
+        if [[ 
+          "$value" == true ||
+          "$value" == false ||
+          "$value" =~ ^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$ ||
+          "$value" == null ||
+          "${value:0:1}" == "[" ||
+          "${value:0:1}" == "{"
+        ]]; then 
+          data+=",\"$key\":$value"
+        else 
+          data+=",\"$key\":\"$value\""
+        fi
+      fi
+    fi
+    fi
+  done 
+  data=${data/,/}
+  data+='}'
+  echo "$data"
+elif [[  "$(declare -p "$var" 2>/dev/null)" =~ "declare -a" ]]; then
+data='['
+for key in $(eval "echo \${!$var[@]}"); do
+  value=$(eval "echo -e \${$var[$key]}")
+  if [[ 
+        "$value" == true ||
+        "$value" == false ||
+        "$value" =~ ^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$ ||
+        "$value" == null ||
+        "${value:0:1}" == "[" ||
+        "${value:0:1}" == "{"
+  ]]; then 
+      data+=", $value"
+    else 
+      data+=",\"$value\""
+    fi
+done
+data=${data/,/}
+data+=' ]'
+echo "$data" 
+fi
+;;
+esac
+set +x
+}
+! "$sourced" && bash2json "$@"
