@@ -36,7 +36,7 @@ json_append() {
   local key="$2"
   local value="$3"
   if [[ "$key" =~ \. ]]; then 
-    IFS=' ' read key subkey <<< "${key/\./ }"
+    IFS=' ' read key subkey <<< "${key/./ }"
     local keyout=$(json_query "$input" "$key")
     [[ "$keyout" == null ]] && input=$($FUNCNAME "$input" "$key" '{}') && keyout='{}'
     local newkeyout=$($FUNCNAME "$keyout" "$subkey" "$value")
@@ -58,9 +58,9 @@ json_append() {
     key="${key//\[\]/}"
     local keyout=$(json_query "$input" "${key}")
     local newkeyout=$($FUNCNAME "$keyout" "$value")
-    keyout="\"${key}\":${keyout//\]/\\]}"
-    newkeyout="\"${key}\":${newkeyout//\]/\\]}"
-    echo "${input/${keyout}/${newkeyout}}"
+    keyout="\"${key}\":${keyout//\]/\]}"
+    newkeyout="\"${key}\":${newkeyout//\]/\]}"
+    echo -e "${input/${keyout}/${newkeyout}}"
   else
     if [[ "${input:0:1}" == "{" ]]; then 
       [ -z "$key" ] && error "key missing"
@@ -206,12 +206,6 @@ json_validate() {
   done < <(printf %s "$trimmed_json")
  # set -x
 }
-json_to_nested_arr() {
-while read -r line; do
-  read -r name key value subvalue <<< "$line"
-   [[ "$subvalue" != " " && "$subvalue" != "" ]] && echo "${name}_${key}[$value]=$subvalue" || echo "$name[$key]=$value"
-  done <<< "$1"
-}
 
 json_query() {
   local input="$1"
@@ -220,7 +214,7 @@ json_query() {
     while read key; do
    if [[ "$key" =~ \. ]]; then 
     sub=true
-    read key subkey <<<"${key/\./ }"
+    IFS=' ' read key subkey <<<"${key/\./ }"
     if [ -z "$subkey" ]; then 
       ! "$silent" && error "invalid key invocation: \`$2'; expected <key>.<subkey>"
     fi 
