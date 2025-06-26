@@ -58,7 +58,7 @@ json_append() {
     key="${key//\[\]/}"
     local keyout=$(json_query "$input" "${key}")
     local newkeyout=$($FUNCNAME "$keyout" "$value")
-    keyout="\"${key}\":${keyout//\]/\]}"
+    keyout="\"${key}\":${keyout//\]/\\]}"
     newkeyout="\"${key}\":${newkeyout//\]/\]}"
     echo -e "${input/${keyout}/${newkeyout}}"
   else
