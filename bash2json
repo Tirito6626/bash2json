@@ -211,6 +211,7 @@ json_query() {
   local input="$1"
   local key="$2"
   local sub=false
+  local raw="$3"
     while read key; do
    if [[ "$key" =~ \. ]]; then 
     sub=true
@@ -354,7 +355,7 @@ exit
 -s|--silent)   local silent=true          ;;
 --auto-detect) local autodetect=true      ;;
 --stdin)       local readfromstdin=true   ;;
--r|--raw)      local raw=true             ;;
+-r|--raw)      local rawout=true          ;;
 --input=*)   local input="${arg#*=}"      ;;
 --output=*)  local output_arr="${arg#*=}" ;;
 --mode=*)    local mode="${arg#*=}"       ;;
@@ -427,7 +428,7 @@ EOF
 ;;
 validate)  json_validate "$var" ;;
 append)    json_append "$var" "$query" "$arg2" ;;
-query)     json_query "$var" "$query" ;;
+query)     json_query "$var" "$query" "${rawout:=false}" ;;
 from_json) json_to_arr "$var" "${output_arr:-${query}}" ;;
 trim)      json_trim "$var" ;;
 to_json)   arr_to_json "$var" ;;
