@@ -260,16 +260,16 @@ json_query() {
       [[ "$char" == "]" ]] && ((--depth))
       ((depth == 0)) && break || continue 
     elif [[ "$firstchar" == '"' ]]; then
-      [[ "$char" == '"' ]] && ((--depth)) || newstring+="$char"
-      ((depth == 0)) && break || continue 
-    else 
+      ((depth == 0)) && break || newstring+="$char"
+    else
       newstring+="$char"
-      [[ "$char" == ',' ||  "$char" == '}' ]] && newstring=${newstring::-1} && break 
+      [[ "$char" == ',' ||  "$char" == '}' ]] && newstring=${newstring::-1} && >
     fi
   done < <(printf %s "$string")
-  if [[ "${firstchar}" == '"' ]]; then 
+  if [[ "${firstchar}" == '"' ]]; then
+    [[ "${newstring: -1}"  == '}' ]] && newstring="${newstring::-1}"
     "${raw:=false}" && echo -e "${newstring//\"}" || echo -e "${newstring}"
-  else 
+  else
     echo -e "${newstring}"
   fi
 else 
