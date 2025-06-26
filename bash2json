@@ -7,13 +7,10 @@
 
 (return 0 2>/dev/null) && export sourced=true || export sourced=false
 
-function bash2json {
-local ultraverbose=false
-local orig_IFS="$IFS"
 error() {
   exit=${2}
   echo "error: $1" >&2
-  "${exit:=true}" && { ! "${sourced}" && exit 1 || return 1; }
+  "${exit:=true}" && return 1
 }
 json_trim() {
   local input="$1"
@@ -38,14 +35,16 @@ json_append() {
   if [[ "$key" =~ \. ]]; then 
     IFS=' ' read key subkey <<< "${key/./ }"
     local keyout=$(json_query "$input" "$key")
+    local oldkeyout="$keyout"
     [[ "$keyout" == null ]] && input=$($FUNCNAME "$input" "$key" '{}') && keyout='{}'
     local newkeyout=$($FUNCNAME "$keyout" "$subkey" "$value")
     [[ "$key" =~ \[[0-9]*\] ]] && local keyout=$(json_query "$input" "${key//\[[0-9]\]/}")
-    keyout="${keyout//\[/\\[}"
-    newkeyout="${newkeyout//\[/\\[}"
+    [[ "${keyout:0:1}" == '[' && "${newkeyout:0:1}" != "[" ]] && newkeyout="${keyout/${oldkeyout}/${newkeyout}}" 
+    keyout="${keyout//\]/\\]}"
+    newkeyout="${newkeyout//\]/\\]}"
     key="${key//\[[0-9]\]/}"
     input="${input/\"${key}\":${keyout}/\"${key}\":${newkeyout}}"
-    echo "${input//\\[/[}"
+    echo "${input//\\]/]}"
   elif [[ "$key" =~ "[]" ]]; then 
     case "$value" in 
           true|false|[0-9]|null) : ;;
@@ -204,6 +203,12 @@ json_validate() {
     fi
     prevchar="$char"
   done < <(printf %s "$trimmed_json")
+    (( depth > 0 )) && error "missing ${depth} \`}\`" false
+  (( depth < 0 )) && error "missing ${depth//\-} \`{\`" 
+  (( dquotes % 2 )) && error "missing $((dquotes-(dquotes-1))) \`\"\`"
+  (( bdepth > 0 )) && error "missing ${bdepth} \`]\`"
+  (( bdepth < 0 )) && error "missing ${bdepth//-} \`[\`"
+  [ ! -z "$unquotedchars" ] && error "unquoted characters: $unquotedchars"
  # set -x
 }
 
@@ -226,14 +231,15 @@ json_query() {
     [[ "${BASH_REMATCH[0]:1:-1}" != "" ]] || error "expected index number"
     keyout=$($FUNCNAME "$input" "${key//\[[0-9]*\]}")
     [[ "${keyout:0:1}" != '[' ]] && error "cannot get index of non-array"
+    IFS=' '$'\t'$'\n'
     local arr=($(json_list "$keyout"))
     output="${arr[${BASH_REMATCH[0]:1:-1}]}"
     [ ! -z "$output" ] && echo "$("${raw:=false}" && echo "${output//\"}" || echo "$output")" || echo null
-    exit 0
+    return 0
     fi
   trimmed_json=$(json_trim "$input")
   if [ ! -z "$key" ]; then 
-  [[ "$trimmed_json"  =~ \"$key\":(.*) ]] && string="${BASH_REMATCH[1]}" || { echo null; exit; }
+  [[ "$trimmed_json"  =~ \"$key\":(.*) ]] && string="${BASH_REMATCH[1]}" || { echo null; return 0; }
   depth=0
   type=null
   newstring=''
@@ -330,9 +336,13 @@ json_to_arr() {
       done <<< "$(json_list "$json")"
     fi
     [ -z "$3" ] && evalline+=')'
-    echo "$evalline"
+    echo "${evalline/% \)/)}"
 }
-local vers='v2.2.0'
+
+function bash2json {
+local ultraverbose=false
+local orig_IFS="$IFS"
+local vers='v2.3.0'
 local silent=false
 local validate=true
 declare -a args=()
@@ -429,7 +439,7 @@ EOF
 validate)  json_validate "$var" ;;
 append)    json_append "$var" "$query" "$arg2" ;;
 query)     json_query "$var" "$query" "${rawout:=false}" ;;
-from_json) json_to_arr "$var" "${output_arr:-${query}}" ;;
+from_json) json_to_arr "$([ ! -z "$query" ] && json_query "$var" "$query" || echo "$var")" "${output_arr}" ;;
 trim)      json_trim "$var" ;;
 to_json)   arr_to_json "$var" ;;
 esac
