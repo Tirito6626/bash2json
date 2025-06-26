@@ -4,8 +4,8 @@ The most bash-based JSON parser
 ![logo](https://repo.tirito.de/assets/images/bash2json_banner.jpg)
 
 * Pure bash without any external commands
-* JSON validation/query/append
-* Associative/indexed arrays to JSON and vice versa
+* JSON trim/validation/query/append
+* Recursive Associative/indexed arrays to JSON and vice versa
 * Pipes support
 * Single executable
 
