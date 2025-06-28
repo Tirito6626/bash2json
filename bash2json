@@ -14,17 +14,15 @@ error() {
 }
 json_trim() {
   local input="$1"
-  inside_string=0
-  result=""
+  local inside_string=0
+  local result=""
+  local escaped=false
   while IFS='' read -r -n 1 char; do
-    if [[ "$prevchar" == '\' ]]; then
-      result+="$char"; prevchar="$char"; continue
-    else 
-      [[ "$char" == '"' ]] && ((inside_string ^= 1))
-    fi
+   [[ "$char" = '\' ]] && escaped=true
+    "$escaped" && result+="$char" && continue
+    [[ "$char" == '"' ]] && ((inside_string ^= 1))
     [[ "$inside_string" = 0 && "$char" == " " ]] && continue
     result+="$char"
-    prevchar="$char"
   done <<< "$input"
   echo "$result"
 }
@@ -125,7 +123,7 @@ if [[ "${input:0:1}" = '{' ]]; then
       [[ "$char" == '[' ]] && ((++depth))
       [[ "$char" == "]" ]] && ((--depth))
       ((depth == 0)) && break || result+="$char"
-  done < <(printf %s "$input")
+  done <<<"$input"
   echo -e "${result:1}"
 elif [[ "${input:0:1}" = '[' ]]; then
   local depth=0
@@ -141,7 +139,7 @@ elif [[ "${input:0:1}" = '[' ]]; then
       [[ "$char" == '[' ]] && ((++depth))
       [[ "$char" == "]" ]] && ((--depth))
       ((depth == 0)) && break || result+="$char"
-  done < <(printf %s "$input")
+  done <<<"$input"
   echo -e "${result:1}"
 else 
   echo "$input"
