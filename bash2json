@@ -35,7 +35,7 @@ json_append() {
   local value="$3"
   local sub="$4"
       [[ "$input" == "" ]] && input='{}'
-  if [[ "$key" =~ \. ]]; then 
+  if [[ "${key:0:1}" != '{' && "${input:0:1}" != '[' && "$key" =~ \. ]]; then 
     IFS=' ' read append_key subkey <<< "${key/./ }"
     json_query "$input" "$append_key" false true
     local keyout="$json_query_output"
@@ -75,7 +75,7 @@ json_append() {
     json_append_output="${input/${keyout}/${newkeyout}}"
   else
     if [[ "${input:0:1}" == "{" ]]; then 
-      [ -z "$append_key" ] && error "key missing"
+      [ -z "$key" ] && error "key missing"
       [ -z "$value" ] && error "value missing"
       case "$value" in 
           true|false|[0-9]|null) : ;;
@@ -185,7 +185,6 @@ json_validate() {
     if ! "$isvalue" && [ ! -z "$value" ]; then 
       [[ "$value" =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$|^-?\.[0-9]+([eE][+-]?[0-9]+)?$ ]] || case "$value" in
         true|false|null) : ;;
-        $floatregex) : ;;
         *) [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]] || { error "invalid key value \`$value\`"; return 1; }  ;;
       esac 
       value=''
@@ -254,25 +253,24 @@ json_query() {
   json_query_output=""
   local sub="$4"
   local IFS=' ' 
-  local i=0
   for key in $query; do
     IFS='.' 
+    local i=0
     local input="$1"
-    ((++i))
     for subkey in $key; do
-      local sub=true
-      ((i == 1)) && [ ! -z "$json_query_output" ] && input="$json_query_output"
+      ((++i))
+      ((i > 1)) && [ ! -z "$json_query_output" ] && input="$json_query_output"
       if [[ "$subkey" =~ \[[0-9]*\] ]]; then 
         local index="${BASH_REMATCH[0]:1:-1}"
         if [[ "$index" == "" ]]; then 
           error "expected index number"
           return 1
         fi
-        if [[ "$subkey" == \[[0-9]*\] ]]; then
-          keyout="$input"
-        else
+        if [[ "$subkey" != \[[0-9]*\] ]]; then
+          subfunc=true
           $FUNCNAME "$input" "${subkey//\[[0-9]*\]}" false true
-          local keyout="$json_query_output"
+          local input="$json_query_output"
+          subfunc=false
         fi
         if [[ "${keyout:0:1}" != '[' ]]; then 
           error "cannot get index of non-array"
@@ -303,14 +301,6 @@ json_query() {
         done <<<"$input"
         mapfile -t arr <<< "$result"
         json_query_output="${arr[$index]}"
-        if [ ! -z "$json_query_output" ]; then
-          "${raw:=false}" && json_query_output="${json_query_output//\"}"
-        else 
-          json_query_output=null
-        fi
-        if ! "${sub:=false}"; then
-        "${raw:=false}" && printf "%b\n" "$json_query_output"  || printf "%s\n" "$json_query_output" 
-        fi
       else
         if [[ "$input"  =~ \"$subkey\":(.*) ]]; then
           string="${BASH_REMATCH[1]}"
