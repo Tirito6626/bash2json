@@ -323,9 +323,9 @@ json_query() {
               '"')
                 case "$char" in 
                   '\') escaped=true ;;
-                  '"') ((quoted ^= 1))  ;;
+                  '"') ((quoted ^= 1)) && newstring+='"'  ;;
                 esac
-                ((quoted == 0)) && newstring+="$char" && break
+                ((quoted == 0)) && break
               ;; 
               *) 
                 [[ "$char" == ',' ||  "$char" == '}' ]] && break 
@@ -423,7 +423,7 @@ json_to_arr() {
 function bash2json {
 local ultraverbose=false
 local orig_IFS="$IFS"
-local vers='v3.0.0'
+local vers='v3.1.2'
 local silent=false
 local validate=true
 data=''
