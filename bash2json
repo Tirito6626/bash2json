@@ -28,6 +28,31 @@ json_trim() {
   done <<< "$1"
   ! "${sub:=false}" && echo "$json_trim_output"
 }
+
+json_pretty() {
+  json_pretty_output=""
+  local depth=0 newstring='' firstchar='' escaped=false quoted=0 space=''
+          while IFS='' read -r -d '' -n 1 char; do
+            "$escaped" && newstring+="$char" && escaped=false && continue
+            if ((quoted == 0)); then
+              [[ "$char" == ' ' || "$char" == $'\n' ]] && continue
+                case "$char" in 
+                  ',') newstring+=','$'\n'"$space" && continue ;;
+                  '"') ((quoted ^= 1)) ;;
+                  '\') escaped=true ;;
+                  ':') newstring+=': ' && continue ;;
+                  '{'|'[') space+='  ' && newstring+="$char"$'\n'"$space" && continue ;;
+                  '}'|']') space=${space:: -2} && newstring+=$'\n'"${space}$char" && continue ;;
+                esac 
+            else 
+              [[ "$char" == '"' ]] && ((quoted ^= 1))
+            fi
+          newstring+="$char"
+          done <<< "$1"
+  json_pretty_output="$newstring"
+  ! "${sub:=false}" && echo "$json_pretty_output"
+}
+
 json_append() {
   json_trim "$1" true
   local input="$json_trim_output"
@@ -185,7 +210,7 @@ json_validate() {
     if ! "$isvalue" && [ ! -z "$value" ]; then 
       [[ "$value" =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$|^-?\.[0-9]+([eE][+-]?[0-9]+)?$ ]] || case "$value" in
         true|false|null) : ;;
-        *) [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]] || { error "invalid key value \`$value\`"; return 1; }  ;;
+        *) [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]] || { error "invalid key value \`$value\`"; code=1; return 1; }  ;;
       esac 
       value=''
     fi
@@ -223,7 +248,6 @@ json_validate() {
               '[') isvalue=false; ((++bdepth)); [[ ! "$prevchar" =~ '{'|'['|','|'"'|':' ]] && ((++commas)) ;;
               ']') isvalue=false; ((--bdepth)) ;;
               *) "$isvalue" && value+="$char" ;;
-              #[[ "$prevchar" =~ '"'|'{'|':'|',' ]] && quoted=false && unquotedchars+="$char" && continue
             esac 
           ;;
           '"') [[ "$char" == '"' ]] && ((depth ^= 1)) ;;
@@ -420,7 +444,7 @@ json_to_arr() {
 function bash2json {
 local ultraverbose=false
 local orig_IFS="$IFS"
-local vers='v3.2.0'
+local vers='v3.3.0'
 local silent=false
 local validate=true
 data=''
@@ -441,6 +465,7 @@ return 0
 -A|--append)   local action=append        ;;
 -H|-h|--help)  local action=help          ;;  
 -v|--validate) local action=validate      ;;
+-P|--pretty)   local action=pretty        ;;
 -N|--no-validate) local validate=false    ;;
 -s|--silent)   local silent=true          ;;
 --auto-detect) local autodetect=true      ;;
@@ -455,9 +480,10 @@ esac
 done
 "$ultraverbose" && set -x
 if [[ "$action" != "help" && "$action" != "to_json" && "${allargs[0]:0:1}" != '{' && "${allargs[0]:0:1}" != '[' ]]; then
-if IFS= read -d '' -n 1  -t 0.001 || "${readfromstdin:=false}"; then 
-  local var 
+if IFS= read -d '' -n 1  -t 0.001 firstchar || "${readfromstdin:=false}"; then 
+  local var
   read -rd '' var
+  var="${firstchar}${var}"
   local query="${allargs[0]}"
   local arg2="${allargs[1]}"
   local arg3="${allargs[2]}"
@@ -520,7 +546,6 @@ Available options:
 Subkeys are returned as "declare -Ag <array name>=( ... [<key>.<subkey>]=<subkey value> )"
 EOF
 ! "$sourced" && echo "NOTE: --to-json requires bash2json to be sourced, otherwise bash2json wouldn't be able access arrays"
-
 ;;
 validate)  json_validate "$var" ;;
 append)    json_append "$var" "$query" "$arg2" ;;
@@ -528,6 +553,7 @@ query)     json_query "$var" "$query" "${rawout:=false}" ;;
 from_json) json_to_arr "$var" "${output_arr}" ;;
 trim)      json_trim "$var" ;;
 to_json)   arr_to_json "$var" ;;
+pretty)    json_pretty "$var" ;;
 esac
 "$ultraverbose" && set +x
 IFS="$old_IFS"
