@@ -528,6 +528,7 @@ Available options:
 --to-json   <array>                 Convert associative/indexed array into JSON
 -q|--query  <input> <key>           Perform a JSON query (e.g. 'key' or 'key.subkey' or '[0].key') (default)
 -A|--append <input> <key> <value>   Append key to JSON
+-P|--pretty <input>                 Return pretty JSON
 -T|--trim   <input>                 Trim JSON (remove all spaces outside of double quotes)
 -H|-h|--help                        Return this message
 -V|--version                        Show current version
