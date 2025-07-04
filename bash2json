@@ -233,8 +233,7 @@ json_validate() {
     fi
   done <<< "$1"
   if (( dquotes % 2 )); then 
-    local missingq=$((dquotes-(dquotes-1))) 
-    ((missingq == 1 && depth > 0 )) && error 'expected `"` but got `EOF` instead' || error "missing $missingq \`\"\`"
+    (((dquotes-(dquotes-1)) == 1 && depth > 0 )) && error 'expected `"` but got `EOF` instead' || error "missing $missingq \`\"\`"
     code=1
   fi
   (( depth > 0 )) && error "missing ${depth} \`}\`" false && code=1
@@ -243,8 +242,6 @@ json_validate() {
   (( bdepth > 0 )) && error "missing ${bdepth} \`]\`" && code=1
   (( bdepth < 0 )) && error "missing ${bdepth//-} \`[\`" && code=1
   [ ! -z "${unquotedchars//\\n}" ] && error "unquoted characters: $unquotedchars" && code=1
-  #((code == 1)) && return 1
- # set -x
 }
 
 json_query() {
@@ -423,7 +420,7 @@ json_to_arr() {
 function bash2json {
 local ultraverbose=false
 local orig_IFS="$IFS"
-local vers='v3.1.2'
+local vers='v3.2.0'
 local silent=false
 local validate=true
 data=''
@@ -458,14 +455,16 @@ esac
 done
 "$ultraverbose" && set -x
 if [[ "$action" != "help" && "$action" != "to_json" && "${allargs[0]:0:1}" != '{' && "${allargs[0]:0:1}" != '[' ]]; then
-if "${readfromstdin:=false}"; then 
-  local var="$(</dev/stdin)"
+if IFS= read -d '' -n 1  -t 0.001 || "${readfromstdin:=false}"; then 
+  local var 
+  read -rd '' var
   local query="${allargs[0]}"
   local arg2="${allargs[1]}"
   local arg3="${allargs[2]}"
 else 
   if [ -f "$input" ] || [ -L "$input" ]; then 
-    local var="$(<"$input")"
+    local var
+    read -rd '' var < "$input"
     local query="${allargs[0]}"
     local arg2="${allargs[1]}"
     local arg3="${allargs[2]}"
@@ -495,8 +494,8 @@ fi
 [[ "$action" != "help" ]] && [ -z "$var" ] && error "input missing"
 case "${action:=query}" in
 help)
+"${sourced:=false}" && echo "Usage: $FUNCNAME <input> <query|key?> <value?> [options?]" || echo "Usage: $0 <input> <query|key?> <value?> [options?]"
 cat <<-EOF
-Usage: $(! "$sourced" && echo "${0}" || echo "$FUNCNAME") <input> <query|key?> <value?> [options?]
 
 Available options:
 --from-json <input> <name?>         Convert JSON into associative/indexed array
@@ -519,9 +518,9 @@ Available options:
 
 --from-json generates single array command with all keys and subkeys
 Subkeys are returned as "declare -Ag <array name>=( ... [<key>.<subkey>]=<subkey value> )"
-
-$(! "$sourced" && echo "NOTE: --to-json requires bash2json to be sourced, otherwise bash2json wouldn't be able access arrays")
 EOF
+! "$sourced" && echo "NOTE: --to-json requires bash2json to be sourced, otherwise bash2json wouldn't be able access arrays"
+
 ;;
 validate)  json_validate "$var" ;;
 append)    json_append "$var" "$query" "$arg2" ;;
