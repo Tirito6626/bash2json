@@ -535,6 +535,7 @@ local orig_IFS="$IFS"
 local vers='v3.5.0'
 local silent=false
 local validate=true
+local output=''
 data=''
 local input='' var='' query='' arg2='' arg3=''
 declare -a allargs=()
@@ -630,6 +631,7 @@ Available options:
 Subkeys are returned as "declare -Ag <array name>=( ... [<key>.<subkey>]=<subkey value> )"
 EOF
 ! "$sourced" && echo "NOTE: --to-json requires bash2json to be sourced, otherwise bash2json wouldn't be able access arrays"
+return 0
 ;;
 validate)  json_validate "$var" true || return 1
            output="$json_validate_output" ;;
