@@ -643,7 +643,7 @@ trim)      json_trim "$var" "${validate}" true || return 1
            output="$json_trim_output" ;;
 to_json)   arr_to_json "$var" true || return 1
            output="$json_validate_output" ;;
-pretty)    json_pretty "$output"; return 0 ;;
+pretty)    json_pretty "$var"; return 0 ;;
 esac
 "${pretty:=false}" && json_pretty "$output" || echo "$output"
 "$ultraverbose" && set +x
