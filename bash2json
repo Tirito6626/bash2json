@@ -530,12 +530,7 @@ json_to_arr() {
 }
 
 function bash2json {
-local ultraverbose=false
-local orig_IFS="$IFS"
-local vers='v3.5.0'
-local silent=false
-local validate=true
-local output=''
+local ultraverbose=false orig_IFS="$IFS" vers='v3.5.0' silent=false validate=true output=''
 data=''
 local input='' var='' query='' arg2='' arg3=''
 declare -a allargs=()
