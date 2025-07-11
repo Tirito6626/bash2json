@@ -411,7 +411,7 @@ local query="$2" raw="$3" sub="$4" IFS=';' finaloutput=''  oneline=true arroneli
           result+="$char"
           ((depth == 0)) && break
         done <<<"$input"
-        "$ultraverbose" && set -x
+        "${ultraverbose:=false}" && set -x
         mapfile -t arr <<< "$result"
         local out=''
         for i in ${index[@]}; do
@@ -455,7 +455,7 @@ local query="$2" raw="$3" sub="$4" IFS=';' finaloutput=''  oneline=true arroneli
             fi
           newstring+="$char"
           done <<< "$string"
-          "$ultraverbose" && set -x
+          "${ultraverbose:=false}" && set -x
           if [[ "${firstchar}" == '"' && "${raw:=false}" == true ]]; then 
             local string="${newstring#\"}"
             output+="${string%\"}${delim}"
@@ -472,7 +472,7 @@ local query="$2" raw="$3" sub="$4" IFS=';' finaloutput=''  oneline=true arroneli
     sub="$4"
     "${oneline:=true}" && finaloutput+="$output " ||  finaloutput+="$output"$'\n'
   done
-  json_query_output="${finaloutput::-1}"
+  [ ! -z "${finaloutput}" ] && json_query_output="${finaloutput::-1}"
   ! "${sub:=false}" && { "${raw:=false}" && printf "%b\n" "$json_query_output"  || printf "%s\n" "$json_query_output"; }
   return 0
 }
@@ -547,7 +547,7 @@ json_to_arr() {
 }
 
 function bash2json {
-local ultraverbose=false orig_IFS="$IFS" action='' vers='v3.6.1' silent=false validate=true output=''
+local ultraverbose=false orig_IFS="$IFS" action='' vers='v3.6.2' silent=false validate=true output=''
 data=''
 local input='' var='' query='' arg2='' arg3=''
 declare -a allargs=()
@@ -575,9 +575,10 @@ if [[ "$arg" =~ - ]]; then
     --output=*)  local output_file="${arg#*=}" ;;
     --mode=*)    local mode="${arg#*=}"       ;;
     --auto-detect=*) local autodetect="${arg#*=}" ;;
+    *) allargs+=("$arg")
   esac
 else
-  local allargs+=("$arg")
+  allargs+=("$arg")
 fi
 done
 "$ultraverbose" && set -x
@@ -609,7 +610,7 @@ else
     local arg2="${allargs[2]}"
     local arg3="${allargs[3]}"
 fi
-"${pretty}" && [ -z "$action" ] && action=pretty
+"${pretty:=false}" && [ -z "$action" ] && action=pretty
 if "${validate}" && [[ ! "${action:=query}" =~ "validate"|"to_json"|"trim"|"help" ]]; then 
  code=''
  json_validate "$var" || return 1
