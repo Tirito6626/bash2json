@@ -105,6 +105,8 @@ json_trim() {
 json_pretty() {
   json_pretty_output=""
   local depth=0 newstring='' firstchar='' escaped=false quoted=0 space=''
+  local IFS=$'\n'
+  for line in $1; do
           while IFS='' read -r -d '' -n 1 char; do
             "$escaped" && newstring+="$char" && escaped=false && continue
             if ((quoted == 0)); then
@@ -121,8 +123,10 @@ json_pretty() {
               [[ "$char" == '"' ]] && ((quoted ^= 1))
             fi
           newstring+="$char"
-          done <<< "$1"
-  json_pretty_output="$newstring"
+          done <<< "$line"
+    newstring+=$'\n'
+  done
+  json_pretty_output="${newstring:: -1}"
   ! "${sub:=false}" && echo "$json_pretty_output"
   return 0
 }
@@ -351,26 +355,32 @@ json_validate() {
 }
 
 json_query() {
-  local query="$2"
-  local raw="$3"
-  json_query_output=""
-  local sub="$4"
-  local IFS=' ' 
+json_query_output=""
+local query="$2" raw="$3" sub="$4" IFS=';' finaloutput=''  oneline=true arroneline=true index1='' delim=' '
+  IFS=' '
+  local i=0
   for key in $query; do
+    [[ "${key: -1}" == ';' ]] && oneline=false && key="${key::-1}"
     IFS='.' 
-    local i=0
     local input="$1"
+    output=""
     for subkey in $key; do
       ((++i))
-      ((i > 1)) && [ ! -z "$json_query_output" ] && input="$json_query_output"
-      if [[ "$subkey" =~ \[[0-9]*\] ]]; then 
-        local index="${BASH_REMATCH[0]:1:-1}"
-        if [[ "$index" == "" ]]; then 
+      [ ! -z "$output" ] && input="$output" && output=''
+      if [[ "$subkey" =~ \[([0-9].*)\] ]]; then 
+        local index1="${BASH_REMATCH[0]:1:-1}"
+        if [[ "$index1" == "" ]]; then 
           error "expected index number"
           return 1
         fi
+        if [[ "$index1" =~ ';' ]]; then 
+          delim=$'\n'
+          IFS=';' read -a index <<< "${index1}"
+        else
+          IFS=',' read -a index <<< "${index1}"
+        fi
         subfunc=true
-        $FUNCNAME "$input" "${subkey//\[[0-9]*\]}" false true
+        $FUNCNAME "$input" "${subkey//\[$index1\]}" false true
         local input="$json_query_output"
         subfunc=false
         if [[ "${input:0:1}" != '[' ]]; then 
@@ -379,6 +389,7 @@ json_query() {
         fi
         IFS=' '$'\t'$'\n'
         local depth=0 result='' quoted=0 escaped=false
+        set +x
         while IFS='' read -r -d '' -n 1 char; do
           [[ "$quoted" = 0 && "$char" == " " ]] && continue
           [[ "$prevchar" == '\' ]] && escaped=true && continue
@@ -400,11 +411,19 @@ json_query() {
           result+="$char"
           ((depth == 0)) && break
         done <<<"$input"
+        "$ultraverbose" && set -x
         mapfile -t arr <<< "$result"
-        json_query_output="${arr[$index]}"
+        local out=''
+        for i in ${index[@]}; do
+          out+="${arr[$i]}${delim}" 
+        done
+        output="${out:: -1}"
       else
+        [[ "$input" =~ '} {' ]] && input="${input//\} \{/\}$'\n'\{}" 
+        while IFS=$'\n' read -r input; do 
         if [[ "$input"  =~ \"$subkey\":(.*) ]]; then
           string="${BASH_REMATCH[1]}"
+          set +x
           local depth=0 newstring='' firstchar='' escaped=false quoted=0
           while IFS='' read -r -d '' -n 1 char; do
             "$escaped" && newstring+="$char" && escaped=false && continue
@@ -436,28 +455,26 @@ json_query() {
             fi
           newstring+="$char"
           done <<< "$string"
-          if [[ "${firstchar}" == '"' ]]; then 
-            [[ "${newstring: -1}"  == '}' ]] && newstring="${newstring::-1}"
-            if "${raw:=false}"; then
-              json_query_output="${newstring#\"}" 
-              json_query_output="${json_query_output%\"}"
-            else  
-              json_query_output="${newstring}"
-            fi
-          else 
-            json_query_output="${newstring}"
+          "$ultraverbose" && set -x
+          if [[ "${firstchar}" == '"' && "${raw:=false}" == true ]]; then 
+            local string="${newstring#\"}"
+            output+="${string%\"}${delim}"
+          else  
+            output+="${newstring}${delim}"
           fi
         else 
-          json_query_output=null
+          output+="null${delim}"
         fi
+        done <<< "$input"
+        output="${output::-1}"
       fi
     done
     sub="$4"
-    if ! "${sub:=false}"; then
-      "${raw:=false}" && printf "%b\n" "$json_query_output"  || printf "%s\n" "$json_query_output" 
-    fi
+    "${oneline:=true}" && finaloutput+="$output " ||  finaloutput+="$output"$'\n'
   done
-return 0
+  json_query_output="${finaloutput::-1}"
+  ! "${sub:=false}" && { "${raw:=false}" && printf "%b\n" "$json_query_output"  || printf "%s\n" "$json_query_output"; }
+  return 0
 }
 
 arr_to_json() {
@@ -513,7 +530,7 @@ json_to_arr() {
           $FUNCNAME "$value" "" "${parentkey}${key}" true
           result+="$json_to_arr_output"
         else 
-          [ -z "$3" ] && result+="[${key}]='$value' " || result+="[${parentkey}${key}]='$value' "
+          [[ "${value: -1}" == '"' ]] && result+="[${parentkey}${key}]=$value " || result+="[${parentkey}${key}]='$value' "
       fi
       done
     elif [[ "${json:0:1}" == '[' ]]; then
@@ -530,7 +547,7 @@ json_to_arr() {
 }
 
 function bash2json {
-local ultraverbose=false orig_IFS="$IFS" vers='v3.5.0' silent=false validate=true output=''
+local ultraverbose=false orig_IFS="$IFS" action='' vers='v3.6.0' silent=false validate=true output=''
 data=''
 local input='' var='' query='' arg2='' arg3=''
 declare -a allargs=()
@@ -555,7 +572,7 @@ if [[ "$arg" =~ - ]]; then
     -s|--silent)   local silent=true          ;;
     --auto-detect) local autodetect=true      ;;
     -r|--raw)      local rawout=true          ;;
-    --output=*)  local output_arr="${arg#*=}" ;;
+    --output=*)  local output_file="${arg#*=}" ;;
     --mode=*)    local mode="${arg#*=}"       ;;
     --auto-detect=*) local autodetect="${arg#*=}" ;;
   esac
@@ -592,21 +609,21 @@ else
     local arg2="${allargs[2]}"
     local arg3="${allargs[3]}"
 fi
+"${pretty}" && [ -z "$action" ] && action=pretty
 if "${validate}" && [[ ! "${action:=query}" =~ "validate"|"to_json"|"trim"|"help" ]]; then 
  code=''
  json_validate "$var" || return 1
 fi
 [[ "$action" != "help" ]] && [ -z "$var" ] && error "input missing"
-"${pretty}" && [ -z "$action" ] && action=pretty
 case "${action:=query}" in
 help)
-"${sourced:=false}" && echo "Usage: $FUNCNAME <input> <query|key?> <value?> [options?]" || echo "Usage: $0 <input> <query|key?> <value?> [options?]"
+"${sourced:=false}" && echo "Usage: $FUNCNAME <input|filename> <query|key?> <value?> [options?]" || echo "Usage: $0 <input|filename> <query|key?> <value?> [options?]"
 cat <<-EOF
 
 Available options:
 --from-json <input> <name?>         Convert JSON into associative/indexed array
 --to-json   <array>                 Convert associative/indexed array into JSON
--q|--query  <input> <key>           Perform a JSON query (e.g. 'key' or 'key.subkey' or '[0].key') (default)
+-q|--query  <input> <key>           Perform a JSON query(s) (e.g. 'key' or 'key.subkey' or '[0].key' or 'key key2') (default)
 -A|--append <input> <key> <value>   Append key to JSON
 -P|--pretty <input>                 Return pretty JSON
 -T|--trim   <input>                 Trim JSON (remove all spaces outside of double quotes)
@@ -618,7 +635,7 @@ Available options:
 --auto-detect                       Auto-detect key types while using --to-json
 -r|--raw                            Raw output
 --input=<file/JSON>                 Set input or file to use as input 
---output=<name>                     Set output array name (doesn't execute it)
+--output=<filename>                 Save output in a file rather than returning it in standart output
 --auto-detect=<bool>                Enable/disable auto-detection
 
 
@@ -634,7 +651,7 @@ append)    json_append "$var" "$query" "$arg2" true || return 1
            output="$json_append_output" ;;
 query)     json_query "$var" "$query" "${rawout:=false}" true || return 1
            output="$json_query_output" ;;
-from_json) json_to_arr "$var" "${output_arr}" true || return 1
+from_json) json_to_arr "$var" "$query" "" true || return 1
            output="$json_to_arr_output" ;;
 trim)      json_trim "$var" "${validate}" true || return 1
            output="$json_trim_output" ;;
@@ -642,7 +659,11 @@ to_json)   arr_to_json "$var" true || return 1
            output="$json_validate_output" ;;
 pretty)    json_pretty "$var"; return 0 ;;
 esac
-"${pretty:=false}" && json_pretty "$output" || echo "$output"
+if [[ -f "$output_file" || -L "$output_file" ]]; then
+  printf "%s\n" "$output" > "$output_file"
+else 
+  "${pretty:=false}" && json_pretty "$output" || printf "%s\n" "$output"
+fi
 "$ultraverbose" && set +x
 IFS="$old_IFS"
 }
