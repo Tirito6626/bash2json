@@ -30,9 +30,9 @@ json_trim() {
     local newstring='' escaped=false depth=0 dquotes=0 bdepth=0 newstring='' isvalue=false value='' commas=0 firstchar='' quoted=false prevchar='' inside_string=0 unquotedchars='' code=0
     while IFS='' read -r -d '' -n 1 char; do
       if ! "$isvalue" && [ ! -z "$value" ]; then 
-        case "$value" in
+        [[ "$value" =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$|^-?\.[0-9]+([eE][+-]?[0-9]+)?$ ]] || case "$value" in
           true|false|null) : ;;
-          *) [[ ! "$value" =~ ^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$|^-?\.[0-9]+([eE][+-]?[0-9]+)?$ && "${value:0:1}" == '"' && "${value: -1}" == '"' ]] || { error "invalid key value \`$value\`"; code=1; return 1; }  ;;
+          *) [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]] || { error "invalid key value \`$value\`"; code=1; return 1; }  ;;
         esac 
         value=''
       fi
