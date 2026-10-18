@@ -9,6 +9,8 @@ The most bash-based JSON parser
 * Pipes support
 * Single executable
 
+# this project is archived, check [shelljq](https://github.com/Tirito6626/shelljq) instead
+
 ## Usage examples:
 Getting "world": 
 ```bash
